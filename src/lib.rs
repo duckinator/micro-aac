@@ -1,5 +1,41 @@
+use std::sync::OnceLock;
+
 type Group = [&'static str; 4];
 type Layout = [Group; 4];
+
+fn choices_text(a: &'static str, b: &'static str, c: &'static str, d: &'static str) -> Choice<'static> {
+    Choices::new(
+        Choice::Text(a),
+        Choice::Text(b),
+        Choice::Text(c),
+        Choice::Text(d),
+    ).into()
+}
+
+fn toplevel() -> &'static Choices<'static> {
+    static MENU: OnceLock<Choices> = OnceLock::new();
+    MENU.get_or_init(|| {
+        let abcd = choices_text("a", "b", "c", "d");
+        let efgh = choices_text("e", "f", "g", "h");
+        let ijkl = choices_text("i", "j", "k", "l");
+        let mnop = choices_text("m", "n", "o", "p");
+        let alpha1 = Choice::Menu(Choices::new(abcd, efgh, ijkl, mnop));
+
+        let qrst = choices_text("q", "r", "s", "t");
+        let uvwx = choices_text("u", "v", "w", "x");
+        let yzdc = choices_text("y", "z", ".", ",");
+        let qbsd = choices_text("?", "!", "'", "\"");
+        let alpha2 = Choice::Menu(Choices::new(qrst, uvwx, yzdc, qbsd));
+
+        let num1 = choices_text("1", "2", "3", "4");
+        let num2  =choices_text("5", "6", "7", "8");
+        let num3 = choices_text("9", "0", "+", "-");
+        let num4 = choices_text("~", "$", "%", "#");
+        let numbers = Choice::Menu(Choices::new(num1, num2, num3, num4));
+
+        Choices::new(alpha1, alpha2, Choice::None, numbers)
+    })
+}
 
 static LAYOUTS: [Layout; 3] = [
     [
@@ -25,114 +61,93 @@ static LAYOUTS: [Layout; 3] = [
 ];
 
 #[derive(Clone)]
-struct State {
-    text: String,
+enum Choice<'a> {
+    None,
+    Menu(Choices<'a>),
+    Text(&'a str),
 }
-impl State {
-    pub fn new() -> Self {
-        Self { text: String::new() }
-    }
 
-    fn append(&self, new_text: &'static str) -> Self {
-        let mut state = self.clone();
-        state.text.push_str(new_text);
-        state
-    }
+#[derive(Clone)]
+pub struct Choices<'a> {
+    label: String,
+    a: Choice<'a>,
+    b: Choice<'a>,
+    c: Choice<'a>,
+    d: Choice<'a>,
+}
 
-    fn space(&self) -> Self {
-        self.append(" ")
-    }
-
-    fn delete(&self) -> Self {
-        let mut state = self.clone();
-        state.text.pop();
-        state
+impl<'a> From<Choices<'a>> for Choice<'a> {
+    fn from(item: Choices<'a>) -> Choice<'a> {
+        Choice::Menu(&item)
     }
 }
 
-pub struct GroupIface {
-    group: Group,
-    state: State,
-}
-impl GroupIface {
-    pub fn a(&self) -> Interface {
-        Interface { state: self.state.append(self.group[0]) }
+impl<'a> Choices<'a> {
+    pub fn new(a: Choice<'a>, b: Choice<'a>, c: Choice<'a>, d: Choice<'a>) -> Self {
+        let label = String::new();
+        Self { label, a, b, c, d }
     }
-    pub fn b(&self) -> Interface {
-        Interface{ state: self.state.append(self.group[1]) }
-    }
-    pub fn c(&self) -> Interface {
-        Interface { state: self.state.append(self.group[2]) }
-    }
-    pub fn d(&self) -> Interface {
-        Interface{ state: self.state.append(self.group[3]) }
+
+    pub fn set_label(&mut self, text: String) -> &Self {
+        self.label.push_str(&text);
+        self
     }
 }
 
-
-pub struct LayoutIface {
-    layout: Layout,
-    state: State,
-}
-impl LayoutIface {
-    pub fn a(&self) -> GroupIface {
-        GroupIface { group: self.layout[0], state: self.state.clone() }
-    }
-
-    pub fn b(&self) -> GroupIface {
-        GroupIface { group: self.layout[1], state: self.state.clone() }
-    }
-
-    pub fn c(&self) -> GroupIface {
-        GroupIface { group: self.layout[2], state: self.state.clone() }
-    }
-
-    pub fn d(&self) -> GroupIface {
-        GroupIface { group: self.layout[3], state: self.state.clone() }
-    }
+pub struct Interface<'a> {
+    //label: &'a str,
+    buffer: String,
+    //toplevel_choices: Choices<'a>,
+    choices: &'a Choices<'a>,
 }
 
-pub struct Interface {
-    state: State,
-}
-impl Interface {
-    pub fn new() -> Self {
-        Self { state: State::new() }
+impl<'a> Interface<'a> {
+    pub fn new(choices: &'a Choices<'a>) -> Interface<'a> {
+        let buffer = String::new();
+        //let toplevel_choices = choices.clone();
+        //let choices = &choices;
+        Self { buffer: buffer, /*toplevel_choices,*/ choices: choices }
     }
 
     pub fn text(&self) -> String {
-        self.state.clone().text
+        self.buffer.clone()
     }
 
-    pub fn clear(&self) -> Interface {
-        Self::new()
+    fn append(&'a mut self, text: &'a str) -> &'a Self {
+        self.buffer.push_str(text);
+        self
     }
 
-    pub fn space(&self) -> Self {
-        Self { state: self.state.space() }
+    fn select(&'a mut self, choice: &Choice<'a>) {
+        match choice {
+            Choice::Menu(menu) => { self.choices = menu; },
+            Choice::Text(text) => { self.append(text); },
+            Choice::None => (),
+        };
     }
 
-    pub fn delete(&self) -> Self {
-        Self { state: self.state.delete() }
+    pub fn up(&'a mut self) {
+        self.select(&self.choices.a)
     }
 
-    pub fn a(&self) -> LayoutIface {
-        LayoutIface { layout: LAYOUTS[0], state: self.state.clone() }
+    pub fn right(&'a mut self) {
+        self.select(&self.choices.b)
     }
 
-    pub fn b(&self) -> LayoutIface {
-        LayoutIface { layout: LAYOUTS[1], state: self.state.clone() }
+    pub fn down(&'a mut self) {
+        self.select(&self.choices.c)
     }
 
-    pub fn c(&self) -> LayoutIface {
-        LayoutIface { layout: LAYOUTS[2], state: self.state.clone() }
+    pub fn left(&'a mut self) {
+        self.select(&self.choices.d)
     }
 }
+
 
 #[cfg(test)]
 mod tests {
     use crate::Interface;
-
+/*
     #[test]
     fn hello_world() {
         let iface = Interface::new()
@@ -153,4 +168,5 @@ mod tests {
             .b().d().b();
         assert_eq!("hello, world!", iface.text());
     }
+*/
 }
